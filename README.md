@@ -55,7 +55,11 @@ dns-nameservers 1.1.1.1 8.8.8.8
 1.  Sudo nano /etc/resolv.conf
 2.  ajouter « nameserver x.x.x.x » (8 ou 1 par sécurité sauf consigne
     contraire)
+## Résolution d’un problème serveur :
 
+restart ; enable ; status ; start ; stop ; journalctl -u le service 
+
+ss -tulnp | grep le port ou le service
 # modifier les permission d'un fichier
 
 1.  Chmod « permission(a qui, modif,droit) » « nom de fichier »

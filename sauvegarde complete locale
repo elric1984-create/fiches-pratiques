@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+#
+# backup_total.sh
+# Sauvegarde totale : crée une archive tar compressée et horodatée à chaque exécution.
+#
+# Utilisation :
+#   ./backup_total.sh -s /home/user -s /etc -d /mnt/backup [-r 14] [-c gz] [-e exclusions.txt] [-n]
+#
+# Options :
+#   -s DIR   Dossier source à sauvegarder (répétable)
+#   -d DIR   Dossier de destination des archives (obligatoire)
+#   -r N     Rétention en jours (défaut : 14)
+#   -c TYPE  Compression : gz (défaut), xz, zst, none
+#   -e FILE  Fichier de motifs d'exclusion pour tar (optionnel)
+#   -l FILE  Fichier de log (défaut : ~/backup_total.log)
+#   -n       Simulation (dry-run) : liste ce qui serait fait, sans créer d'archive
+#   -h       Aide
+#
+# Restauration :
+#   tar -xpf /mnt/backup/backup_2026-10-01_020000.tar.gz -C /dossier/de/restauration
+#   (tar détecte automatiquement la compression)
+
+set -euo pipefail
+
+# ---------- Valeurs par défaut ----------
+SOURCES=()
+BACKUP_DIR=""
+RETENTION_DAYS=14
+COMPRESSION="gz"
+EXCLUDE_FILE=""
+LOG_FILE="${HOME}/backup_total.log"
+DRY_RUN=0
+
+usage() {
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+log() {
+    local level="$1"; shift
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $*" | tee -a "$LOG_FILE" >&2
+}
+
+# ---------- Lecture des arguments ----------
+while getopts ":s:d:r:c:e:l:nh" opt; do
+    case "$opt" in
+        s) SOURCES+=("$OPTARG") ;;
+        d) BACKUP_DIR="${OPTARG%/}" ;;
+        r) RETENTION_DAYS="$OPTARG" ;;
+        c) COMPRESSION="$OPTARG" ;;
+        e) EXCLUDE_FILE="$OPTARG" ;;
+        l) LOG_FILE="$OPTARG" ;;
+        n) DRY_RUN=1 ;;
+        h) usage 0 ;;
+        :) echo "Option -$OPTARG : argument manquant" >&2; usage 1 ;;
+        \?) echo "Option inconnue : -$OPTARG" >&2; usage 1 ;;
+    esac
+done
+
+# ---------- Vérifications ----------
+[[ ${#SOURCES[@]} -gt 0 ]] || { echo "Aucune source indiquée (-s)" >&2; usage 1; }
+[[ -n "$BACKUP_DIR" ]]     || { echo "Aucune destination indiquée (-d)" >&2; usage 1; }
+[[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || { echo "La rétention doit être un nombre entier" >&2; exit 1; }
+
+for src in "${SOURCES[@]}"; do
+    [[ -e "$src" ]] || { echo "Source introuvable : $src" >&2; exit 1; }
+done
+
+[[ -z "$EXCLUDE_FILE" || -f "$EXCLUDE_FILE" ]] || { echo "Fichier d'exclusion introuvable : $EXCLUDE_FILE" >&2; exit 1; }
+
+# Choix de la compression
+case "$COMPRESSION" in
+    gz)   TAR_FLAG="-z";          EXT="tar.gz"  ;;
+    xz)   TAR_FLAG="-J";          EXT="tar.xz"  ;;
+    zst)  TAR_FLAG="--zstd";      EXT="tar.zst" ;;
+    none) TAR_FLAG="";            EXT="tar"     ;;
+    *) echo "Compression inconnue : $COMPRESSION (gz, xz, zst, none)" >&2; exit 1 ;;
+esac
+
+mkdir -p "$BACKUP_DIR" "$(dirname "$LOG_FILE")"
+
+# ---------- Verrou : empêche deux sauvegardes simultanées ----------
+exec 200>"${BACKUP_DIR}/.backup_total.lock"
+if ! flock -n 200; then
+    log ERROR "Une sauvegarde est déjà en cours"
+    exit 1
+fi
+
+# ---------- Variables ----------
+TIMESTAMP="$(date +%Y-%m-%d_%H%M%S)"
+ARCHIVE="${BACKUP_DIR}/backup_${TIMESTAMP}.${EXT}"
+PARTIAL="${ARCHIVE}.partial"
+
+# Nettoyage des archives partielles laissées par une exécution interrompue
+if [[ $DRY_RUN -eq 0 ]]; then
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'backup_*.partial' -delete 2>/dev/null || true
+fi
+
+# En cas d'interruption (Ctrl+C, kill), on supprime l'archive partielle
+trap 'rm -f "$PARTIAL"; log ERROR "Sauvegarde interrompue"; exit 130' INT TERM
+
+# ---------- Construction de la commande tar ----------
+TAR_OPTS=(-c -p --one-file-system)
+[[ -n "$TAR_FLAG" ]] && TAR_OPTS+=("$TAR_FLAG")
+[[ -n "$EXCLUDE_FILE" ]] && TAR_OPTS+=(--exclude-from="$EXCLUDE_FILE")
+
+# Ne pas inclure l'archive elle-même si la destination est dans une source
+TAR_OPTS+=(--exclude="$BACKUP_DIR")
+
+log INFO "Début de la sauvegarde totale -> $ARCHIVE"
+log INFO "Sources : ${SOURCES[*]}"
+
+# ---------- Simulation ----------
+if [[ $DRY_RUN -eq 1 ]]; then
+    log INFO "Simulation : fichiers qui seraient archivés (aperçu des 50 premiers)"
+    tar "${TAR_OPTS[@]}" -v -f /dev/null "${SOURCES[@]}" 2>&1 | head -n 50 || true
+    log INFO "Simulation terminée, aucune archive créée"
+    exit 0
+fi
+
+# ---------- Création de l'archive ----------
+set +e
+tar "${TAR_OPTS[@]}" -f "$PARTIAL" "${SOURCES[@]}" 2>>"$LOG_FILE"
+TAR_CODE=$?
+set -e
+
+# Code 1 = des fichiers ont changé pendant la lecture (non bloquant)
+if [[ $TAR_CODE -ge 2 ]]; then
+    rm -f "$PARTIAL"
+    log ERROR "tar a échoué (code $TAR_CODE). Voir $LOG_FILE"
+    exit "$TAR_CODE"
+fi
+[[ $TAR_CODE -eq 1 ]] && log WARN "Certains fichiers ont changé pendant la sauvegarde (code 1)"
+
+# ---------- Vérification d'intégrité ----------
+log INFO "Vérification de l'intégrité de l'archive..."
+if ! tar -t ${TAR_FLAG:+"$TAR_FLAG"} -f "$PARTIAL" >/dev/null 2>>"$LOG_FILE"; then
+    rm -f "$PARTIAL"
+    log ERROR "L'archive est corrompue, elle a été supprimée"
+    exit 1
+fi
+
+# ---------- Validation + somme de contrôle ----------
+mv "$PARTIAL" "$ARCHIVE"
+( cd "$BACKUP_DIR" && sha256sum "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256" )
+
+SIZE="$(du -h "$ARCHIVE" | cut -f1)"
+log INFO "Archive créée : $ARCHIVE ($SIZE)"
+log INFO "Somme de contrôle : ${ARCHIVE}.sha256"
+
+# ---------- Rotation : suppression des archives trop anciennes ----------
+log INFO "Rotation : suppression des archives de plus de ${RETENTION_DAYS} jours"
+while IFS= read -r old; do
+    log INFO "Suppression de $old"
+    rm -f "$old" "${old}.sha256"
+done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'backup_*.tar*' ! -name '*.sha256' \
+            -mtime +"$RETENTION_DAYS" | sort)
+
+trap - INT TERM
+log INFO "Sauvegarde terminée avec succès"

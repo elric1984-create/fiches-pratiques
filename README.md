@@ -12,6 +12,10 @@ qu'a désactiver les services inutiles)
 2.  apt install && apt upgrade -y
 3.  apt install sudo
 
+## ajouter un utilsateur/groupe
+1. sudo useradd "username" => sudo passwd "username"
+2. sudo groupadd "groupname"
+
 ## ajouter l'utilisateur au sudoers
 
 1.  Usermod -aG sudo username

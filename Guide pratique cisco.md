@@ -15,6 +15,26 @@ On a stick
 
 A répéter autant de fois qu'il y a de vlan (penser a la vlan de service)
 
+## (Protocole vtp
+	Sur un switch multilayer
+	enable
+	configure terminal
+		vtp mode server
+		vtp domain « nom de domaine »
+		vtp version 2
+		vlan « X »
+ 		name « nom de vlan »
+		vlan « y »
+ 		name « nom de vlan »
+		vlan « z »
+ 		name « nom de vlan »
+	end
+	sur chaque switch standard
+	conf t
+		vtp mode client
+		vtp domain « nom de domaine »
+	end)
+
 ##  Assignation des vlan a leur interfaces 
 
 1.  int (interface du vlan)
@@ -28,6 +48,7 @@ A répéter autant de fois que nécessaire
 1.  Int (interface vers routeur)
 2.  sw mode trunk
 3.  sw trunk allowed vlan (numéros de vlan séparés par des virgules)
+4.  spanning-tree portfast
 
 # Paramétrage routeur
 

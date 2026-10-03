@@ -23,12 +23,19 @@ A répéter autant de fois qu'il y a de vlan (penser a la vlan de service)
 		2. vtp domain « nom de domaine »
 		3. vtp version 2
 		4. vlan « X »
+		
  		5. name « nom de vlan »
+		
 		6. vlan « y »
+		
  		7. name « nom de vlan »
+		
 		8. vlan « z »
+		
  		9. name « nom de vlan »
+		
 	end
+	
 	sur chaque switch standard
 	conf t
 		vtp mode client

@@ -15,19 +15,19 @@ On a stick
 
 A répéter autant de fois qu'il y a de vlan (penser a la vlan de service)
 
-## (Protocole vtp
+## Protocole vtp
 	Sur un switch multilayer
 	enable
 	configure terminal
-		vtp mode server
-		vtp domain « nom de domaine »
-		vtp version 2
-		vlan « X »
- 		name « nom de vlan »
-		vlan « y »
- 		name « nom de vlan »
-		vlan « z »
- 		name « nom de vlan »
+		1. vtp mode server
+		2. vtp domain « nom de domaine »
+		3. vtp version 2
+		4. vlan « X »
+ 		5. name « nom de vlan »
+		6. vlan « y »
+ 		7. name « nom de vlan »
+		8. vlan « z »
+ 		9. name « nom de vlan »
 	end
 	sur chaque switch standard
 	conf t

@@ -60,4 +60,12 @@ PS C:\>New-ADOrganizationalUnit -Name UnitName -Path "DC=NomDeDomaine,DC=extensi
 //créer un utilisateur
 PS C:\>New-ADUser -Name "Username" -SamAccountName adupont -UserPrincipalName username@NomDeDoamine.extension -Path "OU=UnitName,DC=NomDeDomaine,DC=extension" -AccountPassword (ConvertTo-SecureString MdP -AsPlainText -Force) -Enabled $true
 
+##Créer des groupes et y ajouter des utilisateurs
+//Créer un groupe
+PS C:\>New-ADGroup -Name NomDeGroupe -GroupScope Global -GroupCategory Security -Path "OU=unitName,DC=NomDeDoamine,DC=extension"
+//Ajouter un utilistaeur
+PS C:\>Add-ADGroupMember -Identity NomDEGroupe -Members username1, username2
+//vérification
+PS C:\>
+PS C:\>Get-ADGroupMember -Identity NomDeGroupe
 

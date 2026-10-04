@@ -1,0 +1,63 @@
+
+##identifie la carte réseau
+PS C:\> Get-NetAdapter
+
+##fixe l'adresse
+PS C:\> New-NetIPAddress -InterfaceIndex 3 -IPAddress IpDeTonChoix -PrefixLength 24
+
+##fixe le dns sur la loopback
+PS C:\> Set-DnsClientServerAddress -InterfaceIndex 3 -ServerAddresses 127.0.0.1
+
+##renommer le serveur
+PS C:\>
+Rename-Computer -NewName "NomDeMachine" -Restart
+
+##installation du service ADDS
+PS C:\>Install-WindowsFeature AD-Domain-Services -IncludeManagementTools
+
+##Promotion en contrôleur de doamine
+PS C:\>Install-ADDSForest -DomainName NomDeDomaine.extension -DomainNetBIOSName NomDeDomaine -InstallDns -SafeModeAdministratorPassword (ConvertTo-SecureString mdp -AsPlainText -Force) -Force
+
+##Vérifications
+PS C:\>Get-ADDomain
+// Doit afficher DNSRoot : NomDeDomaine.extension
+PS C:\>Get-ADDomainController
+// Doit afficher Name : NomDeMachine
+PS C:\>nslookup NomDemachine.NomDeDomaine.extension 127.0.0.1
+// Doit retourner Address : IpDeTonChoix
+
+##Configuration pare feu
+// Méthode 2 - Bonne pratique : autoriser les ports AD
+// DNS (résolution des noms du domaine)
+PS C:\>New-NetFirewallRule -DisplayName "AD-DNS-UDP" -Direction Inbound -Protocol UDP -LocalPort 53 -Action Allow
+
+PS C:\>New-NetFirewallRule -DisplayName "AD-DNS-TCP" -Direction Inbound -Protocol TCP -LocalPort 53 -Action Allow
+
+// Kerberos (authentification)
+PS C:\>New-NetFirewallRule -DisplayName "AD-Kerberos-TCP" -Direction Inbound -Protocol TCP -LocalPort 88 -Action Allow
+
+PS C:\>New-NetFirewallRule -DisplayName "AD-Kerberos-UDP" -Direction Inbound -Protocol UDP -LocalPort 88 -Action Allow
+
+// LDAP (annuaire AD), RPC, SMB, Global Catalog
+PS C:\>New-NetFirewallRule -DisplayName "AD-LDAP" -Direction Inbound -Protocol TCP -LocalPort 389 -Action Allow
+
+PS C:\>New-NetFirewallRule -DisplayName "AD-RPC" -Direction Inbound -Protocol TCP -LocalPort 135 -Action Allow
+
+PS C:\>New-NetFirewallRule -DisplayName "AD-SMB" -Direction Inbound -Protocol TCP -LocalPort 445 -Action Allow
+
+PS C:\>New-NetFirewallRule -DisplayName "AD-GC" -Direction Inbound -Protocol TCP -LocalPort 3268 -Action Allow
+
+// RPC dynamique (ports hauts - nécessaire pour la jonction au domaine)
+PS C:\>New-NetFirewallRule -DisplayName "AD-RPC-Dynamic" -Direction Inbound -Protocol TCP -LocalPort 49152-65535 -Action Allow
+
+// Vérifier les règles créées
+PS C:\>Get-NetFirewallRule | Where-Object DisplayName -like 'AD-*' | Select DisplayName, Enabled
+
+##Créer des OU et des utilistaeurs AD
+//créer une OU
+PS C:\>New-ADOrganizationalUnit -Name UnitName -Path "DC=NomDeDomaine,DC=extension"
+
+//créer un utilisateur
+PS C:\>New-ADUser -Name "Username" -SamAccountName adupont -UserPrincipalName username@NomDeDoamine.extension -Path "OU=UnitName,DC=NomDeDomaine,DC=extension" -AccountPassword (ConvertTo-SecureString MdP -AsPlainText -Force) -Enabled $true
+
+

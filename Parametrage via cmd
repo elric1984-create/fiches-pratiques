@@ -69,3 +69,11 @@ PS C:\>Add-ADGroupMember -Identity NomDEGroupe -Members username1, username2
 PS C:\>
 PS C:\>Get-ADGroupMember -Identity NomDeGroupe
 
+##Ajouter un poste au domaine
+//Depuis le poste concerné
+PS C:\>Add-Computer -DomainName NomDeDomaine.extension -Credential NomDeDomaine\\Administrateur -Restart
+
+##changer le poste d'OU
+//depuis le serveur (le pc attéris par défaut dans "computers")
+PS C:\>Get-ADComputer NomDuPoste | Move-ADObject -TargetPath "OU=UnitNae,DC=NomDeDomaine,DC=extension"
+

@@ -1,0 +1,90 @@
+## points importants
+    Nombre impair de noeuds pour éviter les pannes de basculement(split brain)
+    aucune variation dans les caractéristique matérielles
+    aucune variation dans les versions de MariaDB et de Galera
+    le moteur des DN doit être InnoDB ou XtraDB
+      #Vérification du moteur de stockage
+        //on entre dans le gestionnaire de base de données
+          mysql -u root -p 
+        // on contrôle le moteur
+          show variables like 'default_storage_engine';
+            //doit retourner "InnoDB ou XtraDB"
+          SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'DBname' and ENGINE = 'myISAM';
+            //ne doit rien retourner
+
+
+##Installation  (a reproduire sur chaque noeud du cluster)
+
+##instalation de la DB 
+      sudo apt-get update && sudo apt-get install mariadb-server -y
+      sudo apt install galera-4 //dejà installé normalement lors de l'instalation de Maria DB mais on vérifie et installe par la même occasion si absent
+
+##Vérification de la présence de "60-galera.cnf"
+    ls /etc/mysql/mariadb.conf.d/
+  on édite le fichier via nano (penser a éssayer micro) 
+  Le fichier d'origine est un template donc commenté en toutes lignes, voici ce a quoi il doit ressembler in fine
+
+[galera]
+# Mandatory settings
+wsrep_on = ON                                                           #activer la réplication en écriture via le provider wsrep
+wsrep_provider = /usr/lib/galera/libgalera_smm.so                       #emplacement de la librairie wsrep
+wsrep_cluster_name = "NomDeCluster"                                     #nom du cluster, doit être identique sur tous les nœuds de votre cluster Galera
+wsrep_cluster_address = gcomm://AdresseIP1,AdressIP2,AdresseIP3         #adresses IP (ou le nom, mais préférez l'adresse IP) des différents nœuds du cluster (séparées par une virgule) donc ici les adresses IP de mes trois serveurs 
+binlog_format = row                                                     #format des logs en ROW, par défaut
+default_storage_engine = InnoDB                                         #moteur de stockage de la base de données
+innodb_autoinc_lock_mode = 2                                            #mode pour l'auto-incrémentation, 2 est recommandé, mais les autres valeurs possibles sont "0" ou "1"
+innodb_force_primary_key = 1                                            #s'assurer que toutes les tables ont bien une clé primaire pour éviter les erreurs
+
+# Allow server to accept connections on all interfaces.
+bind-address = 0.0.0.0                                                  #accepter les connexions sur toutes les interfaces
+
+# Optional settings
+#wsrep_slave_threads = 1
+#innodb_flush_log_at_trx_commit = 0
+log_error = /var/log/mysql/error-galera.log                            #emplacements des logs d'erreur
+
+Ce fichier sera a reproduire a l'identique sur tous les noeuds
+
+
+##Démarage du cluster Galera
+//Dans le but d'initialiser notre cluster Galera avec son nœud primaire, nous allons poursuivre sur le serveur SRV-DEB-1 qui contient notre configuration (60-galera.cnf) et la base de données à répliquer. Commençons par stopper MariaDB :
+
+sudo systemctl stop mariadb
+//Une fois que c'est fait (et c'est important d'arrêter MariaDB), démarrez l'initialisation du cluster Galera avec cette commande :
+
+sudo galera_new_cluster
+//Maintenant, on va se connecter à notre instance locale MariaDB pour regarder combien de nœuds constituent notre cluster : en toute logique un seul.
+
+mysql -u root -p
+//Exécutez la requête suivante pour récupérer la valeur de la propriété "wsrep_cluster_size" :
+
+show status like 'wsrep_cluster_size';
+//doit retourner 1 so "0" 
+show global status like 'wsrep%';
+
+##Ajout des noeuds
+C'est ici que l'on reproduit sur chaque noeud (un poste en gui qui pilote ça en ssh est bienvenu) le fichier "60-galera.cnf" vu plus haut
+après avoir éditer ce fichier
+sudo systemctl restart mariadb
+a reproduire sur chaque noeud
+
+Cas particuliers
+Serveur Web
+penser a un ip failover sinon utiliser un enregistrement dns pointant vers nos noeuds (soit en éditant le fichier etc/hosts du serveur web soit en parametrant de la sorte un serveur web interne)
+
+Pour finir, sachez que lorsque le serveur MySQL / MariaDB n'est pas situé sur le même serveur que le serveur Web en lui-même, il faut autoriser les connexions distantes dans MySQL sur chaque nœud. Pour cela, il faut éditer le fichier de configuration suivant :
+
+nano /etc/mysql/mariadb.conf.d/50-server.cnf
+Par défaut, la propriété "bind-address" est définie sur "127.0.0.1" donc on autorise uniquement les requêtes provenant de l'hôte local. Cette valeur doit être modifiée pour que le serveur écoute sur une adresse IP spécifique ou toutes ses adresses IP :
+
+#bind-address = 127.0.0.1
+bind-address = 0.0.0.0
+Ensuite, il faut donner des autorisations à l'utilisateur "utilisateur-bdd-wp" utilisé par WordPress pour administrer la base de données "wordpress" correspondante au site, à partir de l'adresse IP du serveur Web. Ce qui nécessite de se connecter à l'instance MySQL pour créer une autorisation comme ceci :
+
+GRANT ALL privileges ON `wordpress`.* TO 'utilisateur-bdd-wp'@'<adresse-ip-serveur-web>' IDENTIFIED BY 'Mot-de-Passe' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+A partir de là, les modifications dans la base de données effectuées par l'intermédiaire de WordPress, sont bien répliquées entre les différents nœuds du cluster. Par exemple, lors de la création d'un nouvel article sur WordPress ou la mise à jour d'un article existant !
+
+
+
+
